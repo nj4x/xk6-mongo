@@ -196,10 +196,6 @@ func (*Files) Append(path string, s string) error {
 	return nil
 }
 
-func (*Files) Delete(path string) error {
-	err := os.Remove(path)
-	if err != nil {
-		return err
-	}
-	return nil
+func (*Files) Delete(path string) {
+	_ = os.Remove(path)
 }
