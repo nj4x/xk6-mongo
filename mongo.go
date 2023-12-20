@@ -7,6 +7,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 
 	k6modules "go.k6.io/k6/js/modules"
 )
@@ -22,22 +23,26 @@ type Mongo struct{}
 
 // Client is the Mongo client wrapper.
 type Client struct {
-	client *mongo.Client
+	client                      *mongo.Client
+	tolerateUnacknowledgedWrite bool
 }
 
 // NewClient represents the Client constructor (i.e. `new mongo.Client()`) and
 // returns a new Mongo client object.
 // connURI -> mongodb://username:password@address:port/db?connect=direct
-func (*Mongo) NewClient(connURI string) interface{} {
+func (*Mongo) NewClient(connURI string, unacknowledgedWriteConcern bool) interface{} {
 
 	clientOptions := options.Client().ApplyURI(connURI)
+	if unacknowledgedWriteConcern {
+		clientOptions.SetWriteConcern(writeconcern.Unacknowledged())
+	}
 	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
 		panic(err)
 		return nil
 	}
 
-	return &Client{client: client}
+	return &Client{client: client, tolerateUnacknowledgedWrite: unacknowledgedWriteConcern}
 }
 
 func (*Mongo) HexToObjectID(id string) primitive.ObjectID {
@@ -56,9 +61,7 @@ func (c *Client) Count(database string, collection string, filter interface{}, l
 		opts.SetLimit(limit)
 	}
 	cnt, err := col.CountDocuments(context.TODO(), filter, opts)
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	return cnt
 }
 
@@ -67,9 +70,7 @@ func (c *Client) Insert(database string, collection string, doc map[string]any) 
 	db := c.client.Database(database)
 	col := db.Collection(collection)
 	res, err := col.InsertOne(context.TODO(), doc)
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	return res.InsertedID
 }
 
@@ -78,9 +79,7 @@ func (c *Client) InsertMany(database string, collection string, docs []any) []in
 	db := c.client.Database(database)
 	col := db.Collection(collection)
 	res, err := col.InsertMany(context.TODO(), docs)
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	return res.InsertedIDs
 }
 
@@ -92,40 +91,42 @@ func (c *Client) Find(database string, collection string, filter interface{}, li
 		opts.SetLimit(limit)
 	}
 	cur, err := col.Find(context.TODO(), filter, opts)
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	var results []bson.M
 	if err = cur.All(context.TODO(), &results); err != nil {
-		panic(err)
+		c.CheckError(err)
 	}
 	return results
 }
 
-func (c *Client) FindOne(database string, collection string, filter map[string]any, skip int64) error {
+func (c *Client) FindOne(database string, collection string, filter map[string]any, skip int64) bson.M {
 	db := c.client.Database(database)
 	col := db.Collection(collection)
 	var result bson.M
 	opts := options.FindOne().SetSort(bson.D{{"_id", 1}}).SetSkip(skip)
 	err := col.FindOne(context.TODO(), filter, opts).Decode(&result)
 	if err == mongo.ErrNoDocuments {
-		return nil
+		return bson.M{}
 	}
-	if err != nil {
-		panic(err)
-	}
-	return nil
+	c.CheckError(err)
+	return result
 }
 
 func (c *Client) UpdateOne(database string, collection string, filter interface{}, data map[string]any) int64 {
 	db := c.client.Database(database)
+
 	col := db.Collection(collection)
-	update := bson.D{{"$set", data}}
+
+	update := bson.A{bson.D{{"$set", data}}}
 	res, err := col.UpdateOne(context.TODO(), filter, update)
-	if err != nil {
+	c.CheckError(err)
+	return res.MatchedCount
+}
+
+func (c *Client) CheckError(err interface{ Error() string }) {
+	if err != nil && (err.Error() != "unacknowledged write" || !c.tolerateUnacknowledgedWrite) {
 		panic(err)
 	}
-	return res.MatchedCount
 }
 
 func (c *Client) DeleteOne(database string, collection string, filter map[string]any) error {
@@ -133,9 +134,7 @@ func (c *Client) DeleteOne(database string, collection string, filter map[string
 	col := db.Collection(collection)
 	opts := options.Delete().SetHint(bson.D{{"_id", 1}})
 	_, err := col.DeleteOne(context.TODO(), filter, opts)
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	return nil
 }
 
@@ -144,9 +143,7 @@ func (c *Client) DeleteMany(database string, collection string, filter map[strin
 	col := db.Collection(collection)
 	opts := options.Delete().SetHint(bson.D{{"_id", 1}})
 	_, err := col.DeleteMany(context.TODO(), filter, opts)
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	return nil
 }
 
@@ -154,8 +151,6 @@ func (c *Client) DropCollection(database string, collection string) error {
 	db := c.client.Database(database)
 	col := db.Collection(collection)
 	err := col.Drop(context.TODO())
-	if err != nil {
-		panic(err)
-	}
+	c.CheckError(err)
 	return nil
 }
