@@ -31,7 +31,7 @@ To build a custom `k6` binary with this extension, first ensure you have the pre
 2. [Build the k6 binary](https://github.com/grafana/xk6#command-usage):
 
     ```bash
-    xk6 build --with  github.com/nj4x/xk6-mongo
+    xk6 build --with github.com/nj4x/xk6-mongo --with github.com/avitalique/xk6-file@latest 
     ```
 
    This will create a k6 binary that includes the xk6-mongo extension in your local folder. This k6 binary can now run a k6 test.

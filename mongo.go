@@ -2,6 +2,7 @@ package xk6_mongo
 
 import (
 	"context"
+	"os"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -16,15 +17,31 @@ import (
 // import from JS as "k6/x/mongo".
 func init() {
 	k6modules.Register("k6/x/mongo", new(Mongo))
+	k6modules.Register("k6/x/files", new(Files))
 }
 
 // Mongo is the k6 extension for a Mongo client.
 type Mongo struct{}
 
+type Files struct{}
+
 // Client is the Mongo client wrapper.
 type Client struct {
 	client                      *mongo.Client
 	tolerateUnacknowledgedWrite bool
+}
+
+// Item is the extension file system item representation (file or directory).
+type Item interface {
+	GetPath() string
+	GetContent() any
+}
+
+// File is the extension file representation
+type File struct {
+	Item
+	Path    string
+	Content string
 }
 
 // NewClient represents the Client constructor (i.e. `new mongo.Client()`) and
@@ -152,5 +169,37 @@ func (c *Client) DropCollection(database string, collection string) error {
 	col := db.Collection(collection)
 	err := col.Drop(context.TODO())
 	c.CheckError(err)
+	return nil
+}
+
+func (*Files) Read(path string) (File, error) {
+	fileContent, readError := os.ReadFile(path)
+
+	if readError != nil {
+		return File{}, readError
+	}
+
+	return File{Path: path, Content: string(fileContent)}, nil
+}
+
+func (*Files) Append(path string, s string) error {
+	f, err := os.OpenFile(path,
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(s); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (*Files) Delete(path string) error {
+	err := os.Remove(path)
+	if err != nil {
+		return err
+	}
 	return nil
 }
