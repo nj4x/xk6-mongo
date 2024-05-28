@@ -140,6 +140,17 @@ func (c *Client) UpdateOne(database string, collection string, filter interface{
 	return res.MatchedCount
 }
 
+func (c *Client) UpdateMany(database string, collection string, filter interface{}, data map[string]any) int64 {
+	db := c.client.Database(database)
+
+	col := db.Collection(collection)
+
+	update := bson.A{bson.D{{"$set", data}}}
+	res, err := col.UpdateMany(context.TODO(), filter, update)
+	c.CheckError(err)
+	return res.MatchedCount
+}
+
 func (c *Client) CheckError(err interface{ Error() string }) {
 	if err != nil && (err.Error() != "unacknowledged write" || !c.tolerateUnacknowledgedWrite) {
 		panic(err)
